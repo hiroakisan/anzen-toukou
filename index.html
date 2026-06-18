@@ -1,0 +1,916 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>あんぜんとうこう ゲーム</title>
+<style>
+  :root{
+    --sky:#bfe6ff;
+    --road:#6b6f76;
+    --green:#34c759;
+    --red:#ff453a;
+    --blue:#0a84ff;
+    --ink:#2b2b2b;
+    --paper:#fffdf7;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{margin:0; padding:0; height:100%;}
+  body{
+    font-family:"Hiragino Maru Gothic ProN","Hiragino Kaku Gothic ProN","Yu Gothic UI","Meiryo",system-ui,sans-serif;
+    background:#e8f4ff;
+    color:var(--ink);
+    display:flex; justify-content:center;
+    line-height:1.5;
+  }
+  /* スマホ縦画面前提。幅を絞って中央寄せ（PCでも崩れない） */
+  #app{
+    width:100%; max-width:480px; min-height:100%;
+    background:var(--paper);
+    display:flex; flex-direction:column;
+    box-shadow:0 0 20px rgba(0,0,0,.08);
+    position:relative; overflow:hidden;
+  }
+
+  /* 進捗バー */
+  #progress{
+    padding:10px 12px 6px;
+    background:#fff;
+    border-bottom:2px solid #eee;
+  }
+  .track{
+    position:relative; height:26px;
+    display:flex; align-items:center; justify-content:space-between;
+  }
+  .track .line{
+    position:absolute; left:18px; right:18px; top:50%; height:4px;
+    background:#e3e3e3; border-radius:4px; transform:translateY(-50%); z-index:0;
+  }
+  .track .fill{
+    position:absolute; left:18px; top:50%; height:4px;
+    background:var(--green); border-radius:4px; transform:translateY(-50%);
+    z-index:1; transition:width .4s ease;
+  }
+  .dot{
+    width:14px; height:14px; border-radius:50%;
+    background:#cfcfcf; z-index:2; border:2px solid #fff;
+  }
+  .dot.done{background:var(--green);}
+  .dot.now{background:var(--blue); transform:scale(1.25);}
+  .ends{display:flex; justify-content:space-between; font-size:18px; margin-top:2px;}
+  .stepnum{text-align:center; font-size:13px; color:#777; margin-top:2px;}
+
+  /* イラスト（上半分） */
+  #stage{
+    width:100%; aspect-ratio:1/1;
+    background:var(--sky);
+    overflow:hidden;
+  }
+  #stage svg{display:block; width:100%; height:100%;}
+
+  /* 下半分 */
+  #panel{
+    flex:1; padding:14px 16px 20px;
+    display:flex; flex-direction:column; gap:10px;
+  }
+  #scene-title{font-size:14px; color:#0a84ff; font-weight:700; margin:0;}
+  #question{font-size:20px; font-weight:800; margin:0 0 4px;}
+  ruby rt{font-size:.55em; font-weight:400;}
+
+  .choices{display:flex; flex-direction:column; gap:10px;}
+  .choice{
+    width:100%; text-align:left; cursor:pointer;
+    font-family:inherit; font-size:18px; font-weight:700; color:var(--ink);
+    background:#fff; border:3px solid #d9e6f2; border-radius:16px;
+    padding:14px 16px; line-height:1.4;
+    display:flex; align-items:center; gap:10px;
+    transition:transform .08s, border-color .15s, background .15s;
+  }
+  .choice .mark{font-size:22px; flex:0 0 auto;}
+  .choice:active{transform:scale(.98);}
+  .choice:disabled{cursor:default;}
+  .choice.correct{border-color:var(--green); background:#e9fbef;}
+  .choice.wrong{border-color:var(--red); background:#ffecea;}
+  .choice.dim{opacity:.45;}
+
+  /* 結果コメント */
+  #feedback{
+    margin-top:4px; border-radius:16px; padding:14px 16px;
+    display:none; animation:pop .25s ease;
+  }
+  #feedback.show{display:block;}
+  #feedback.ok{background:#e9fbef; border:3px solid var(--green);}
+  #feedback.ng{background:#fff6e6; border:3px solid #ffb700;}
+  #fb-head{font-size:22px; font-weight:800; margin:0 0 6px; display:flex; align-items:center; gap:8px;}
+  #fb-text{font-size:16px; margin:0;}
+  @keyframes pop{from{transform:scale(.96); opacity:0;} to{transform:scale(1); opacity:1;}}
+
+  .btn{
+    font-family:inherit; font-size:19px; font-weight:800; color:#fff;
+    background:var(--blue); border:none; border-radius:16px;
+    padding:15px; width:100%; cursor:pointer; margin-top:6px;
+    box-shadow:0 4px 0 #0869cf;
+  }
+  .btn:active{transform:translateY(2px); box-shadow:0 2px 0 #0869cf;}
+  .btn.go{background:var(--green); box-shadow:0 4px 0 #28a048;}
+  .btn.go:active{box-shadow:0 2px 0 #28a048;}
+
+  /* スタート / ゴール画面 */
+  .overlay{
+    position:absolute; inset:0; background:var(--paper);
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    text-align:center; padding:30px 24px; gap:14px; z-index:10;
+  }
+  .overlay.hidden{display:none;}
+  .overlay h1{font-size:30px; margin:0; line-height:1.3;}
+  .overlay p{font-size:17px; margin:0; color:#555;}
+  .illust{width:74%; max-width:250px; margin:0 auto;}
+  .illust svg{width:100%; height:auto; display:block;}
+  .score{font-size:24px; font-weight:800;}
+  .stars{font-size:40px; letter-spacing:4px;}
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- 進捗バー -->
+  <div id="progress">
+    <div class="ends"><span>🏠</span><span>🏫</span></div>
+    <div class="track" id="track">
+      <div class="line"></div>
+      <div class="fill" id="fill"></div>
+    </div>
+    <div class="stepnum" id="stepnum"></div>
+  </div>
+
+  <!-- イラスト -->
+  <div id="stage"></div>
+
+  <!-- 下半分 -->
+  <div id="panel">
+    <p id="scene-title"></p>
+    <p id="question"></p>
+    <div class="choices" id="choices"></div>
+    <div id="feedback">
+      <p id="fb-head"></p>
+      <p id="fb-text"></p>
+    </div>
+    <button class="btn" id="next-btn" style="display:none;">つぎへ ▶</button>
+  </div>
+
+  <!-- スタート画面 -->
+  <div class="overlay" id="start-screen">
+    <div class="illust" id="start-illust"></div>
+    <h1>あんぜん<br>とうこうゲーム</h1>
+    <p>いえを しゅっぱつして<br>がっこうまで あんぜんに いこう！<br>ただしいと おもう ものを えらんでね。</p>
+    <button class="btn go" id="start-btn">スタート ▶</button>
+  </div>
+
+  <!-- ゴール画面 -->
+  <div class="overlay hidden" id="goal-screen">
+    <div class="illust" id="goal-illust"></div>
+    <h1 id="goal-title"></h1>
+    <p class="stars" id="goal-stars"></p>
+    <p class="score" id="goal-score"></p>
+    <p id="goal-msg"></p>
+    <button class="btn go" id="retry-btn">もういちど あそぶ 🔁</button>
+  </div>
+
+</div>
+
+<script>
+/* =========================================================
+   SVGイラスト（場面ごと）
+   ※ コード内で完結。外部画像なし。
+   ========================================================= */
+// 共通グラデーション・背景（各SVGの先頭に差し込む）
+const G = `<defs>
+  <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#9fd6ff"/><stop offset="1" stop-color="#e8f6ff"/></linearGradient>
+  <linearGradient id="rainsky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#aebecb"/><stop offset="1" stop-color="#cfd9e1"/></linearGradient>
+  <linearGradient id="road" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#888e98"/><stop offset="1" stop-color="#6b7079"/></linearGradient>
+  <linearGradient id="wetroad" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#6b727c"/><stop offset="1" stop-color="#565c64"/></linearGradient>
+  <radialGradient id="sun" cx="0.5" cy="0.5" r="0.5"><stop offset="0" stop-color="#fff6c4"/><stop offset="1" stop-color="#ffd95e"/></radialGradient>
+</defs>`;
+const SKY = '<rect x="0" y="0" width="400" height="400" fill="url(#sky)"/>';
+function sun(x,y){x=x||338;y=y||58;return `<circle cx="${x}" cy="${y}" r="50" fill="#fff2a8" opacity="0.45"/><circle cx="${x}" cy="${y}" r="30" fill="url(#sun)"/>`;}
+function cloud(x,y,s,o){s=s||1;o=(o==null?0.95:o);return `<g fill="#ffffff" opacity="${o}" transform="translate(${x},${y}) scale(${s})"><ellipse cx="0" cy="0" rx="30" ry="18"/><ellipse cx="26" cy="6" rx="24" ry="15"/><ellipse cx="-24" cy="7" rx="20" ry="13"/><rect x="-40" y="3" width="72" height="15" rx="7"/></g>`;}
+// 共通：小学生（黄色い通学帽＋赤ランドセル）。右向き。shirt=服色, shorts=ズボン色
+function child(x,y,shirt,shorts){
+  shirt=shirt||'#fbfbfb';shorts=shorts||'#2f4eb0';
+  return `<g transform="translate(${x},${y})">
+    <ellipse cx="0" cy="92" rx="34" ry="9" fill="#000" opacity="0.12"/>
+    <rect x="-13" y="54" width="11" height="28" rx="5" fill="${shorts}"/>
+    <rect x="3" y="54" width="11" height="28" rx="5" fill="${shorts}"/>
+    <ellipse cx="-8" cy="85" rx="9" ry="6" fill="#ffffff"/>
+    <ellipse cx="8" cy="85" rx="9" ry="6" fill="#ffffff"/>
+    <rect x="-23" y="12" width="14" height="36" rx="7" fill="#d5372f"/>
+    <path d="M -18 20 q 0 -14 18 -14 q 18 0 18 14 l 0 32 q -18 8 -36 0 z" fill="${shirt}"/>
+    <rect x="11" y="18" width="10" height="28" rx="5" fill="${shirt}"/>
+    <circle cx="16" cy="48" r="5" fill="#ffe0b8"/>
+    <circle cx="0" cy="-8" r="18" fill="#ffe0b8"/>
+    <path d="M -18 -10 A 18 18 0 0 1 18 -10 Z" fill="#ffd633"/>
+    <path d="M 13 -11 q 17 0 23 7 q -13 4 -24 -2 z" fill="#e8bb1a"/>
+    <circle cx="-5" cy="-7" r="2.3" fill="#3a2a1a"/>
+    <circle cx="8" cy="-7" r="2.3" fill="#3a2a1a"/>
+    <circle cx="-10" cy="-2" r="3" fill="#ffb3a0" opacity="0.65"/>
+    <circle cx="12" cy="-2" r="3" fill="#ffb3a0" opacity="0.65"/>
+    <path d="M -3 0 q 5 5 11 0" fill="none" stroke="#3a2a1a" stroke-width="2" stroke-linecap="round"/>
+  </g>`;
+}
+// 道路＋奥の歩道＋手前の歩道（横断する道。手前の歩道で待つ）
+function roadCross(roadId){
+  roadId=roadId||'road';
+  return `<rect x="0" y="256" width="400" height="104" fill="url(#${roadId})"/>
+  <rect x="0" y="248" width="400" height="12" fill="#cfd3d8"/>
+  <rect x="0" y="248" width="400" height="4" fill="#eef1f4"/>
+  <rect x="0" y="360" width="400" height="40" fill="#d8dce1"/>
+  <rect x="0" y="356" width="400" height="6" fill="#bcc1c7"/>`;
+}
+// 横向きの横断歩道（手前ほど太い遠近）。cxを中心に白線5本
+function crosswalk(cx, fill, op){
+  fill=fill||'#f4f7fa'; op=(op==null?1:op);
+  const bars=[[268,279],[285,297],[303,316],[322,336],[342,354]];
+  const half=function(y){return 48+16*(y-268)/86;};
+  let s='<g fill="'+fill+'" opacity="'+op+'">';
+  for(let i=0;i<bars.length;i++){
+    const t=bars[i][0], b=bars[i][1], ht=half(t), hb=half(b);
+    s+='<polygon points="'+(cx-ht)+','+t+' '+(cx+ht)+','+t+' '+(cx+hb)+','+b+' '+(cx-hb)+','+b+'"/>';
+  }
+  return s+'</g>';
+}
+
+// 1. 信号機（青点滅）
+const SVG_SIGNAL = `
+<svg viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">
+  ${G}${SKY}${sun()}${cloud(95,82)}${cloud(225,52,0.78,0.85)}
+  <ellipse cx="55" cy="252" rx="95" ry="42" fill="#bfe3a0"/>
+  <ellipse cx="345" cy="254" rx="110" ry="46" fill="#aedc8c"/>
+  <g transform="translate(18,172)">
+    <rect x="0" y="24" width="66" height="60" fill="#ffd9a8"/>
+    <path d="M -8 26 L 33 -4 L 74 26 Z" fill="#e7894a"/>
+    <rect x="12" y="42" width="16" height="16" rx="2" fill="#cdeeff"/>
+    <rect x="40" y="44" width="15" height="40" rx="2" fill="#a35a1f"/>
+  </g>
+  ${roadCross()}
+  ${crosswalk(190)}
+  <!-- 歩行者信号（点滅する青） -->
+  <g>
+    <rect x="316" y="150" width="9" height="210" fill="#9aa0a8"/>
+    <rect x="316" y="150" width="3" height="210" fill="#bcc1c8"/>
+    <rect x="290" y="116" width="60" height="98" rx="13" fill="#2b2f37"/>
+    <rect x="295" y="121" width="50" height="88" rx="10" fill="#3b414b"/>
+    <rect x="299" y="118" width="42" height="8" rx="4" fill="#21242b"/>
+    <circle cx="320" cy="150" r="15" fill="#5b2f2f"/>
+    <circle cx="320" cy="184" r="16" fill="#34c759"><animate attributeName="opacity" values="1;0.2;1" dur="0.7s" repeatCount="indefinite"/></circle>
+    <g stroke="#0f4d22" stroke-width="3.2" stroke-linecap="round" fill="none">
+      <line x1="319" y1="181" x2="315" y2="188"/>
+      <line x1="319" y1="181" x2="324" y2="189"/>
+      <line x1="319" y1="174" x2="319" y2="182"/>
+      <line x1="319" y1="177" x2="325" y2="181"/>
+    </g>
+    <circle cx="319" cy="171" r="3.2" fill="#0f4d22"/>
+  </g>
+  ${child(64,296,'#fbfbfb','#2f4eb0')}
+</svg>`;
+
+// 2. 横断歩道＋車が近づく
+const SVG_CAR = `
+<svg viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">
+  ${G}${SKY}${cloud(300,60,1,0.9)}${cloud(120,92,0.8,0.85)}
+  <ellipse cx="60" cy="252" rx="100" ry="42" fill="#bfe3a0"/>
+  <ellipse cx="350" cy="250" rx="100" ry="42" fill="#aedc8c"/>
+  ${roadCross()}
+  <!-- センターライン（道路中央・横向き・横断歩道部分は途切れ） -->
+  <g fill="#ffe14d"><rect x="276" y="305" width="30" height="6" rx="3"/><rect x="336" y="305" width="30" height="6" rx="3"/></g>
+  ${crosswalk(180)}
+  <!-- 近づく車 -->
+  <g transform="translate(315,300)">
+    <ellipse cx="0" cy="42" rx="66" ry="10" fill="#000" opacity="0.12"/>
+    <path d="M -34 -8 q 7 -22 22 -22 l 20 0 q 15 0 24 22 z" fill="#3f7fd0"/>
+    <path d="M -27 -8 q 5 -16 16 -16 l 5 0 l 0 16 z" fill="#dff1ff"/>
+    <path d="M 2 -24 l 7 0 q 11 0 18 16 l -25 0 z" fill="#dff1ff"/>
+    <rect x="-60" y="-8" width="120" height="36" rx="15" fill="#4a90e2"/>
+    <rect x="-60" y="14" width="120" height="14" rx="7" fill="#3a72b8"/>
+    <circle cx="-56" cy="6" r="6" fill="#fff3a0"/>
+    <circle cx="-56" cy="6" r="12" fill="#fff3a0" opacity="0.3"/>
+    <rect x="6" y="2" width="14" height="4" rx="2" fill="#2f5e96"/>
+    <circle cx="-34" cy="30" r="13" fill="#2b2b2b"/><circle cx="-34" cy="30" r="6" fill="#9a9a9a"/>
+    <circle cx="34" cy="30" r="13" fill="#2b2b2b"/><circle cx="34" cy="30" r="6" fill="#9a9a9a"/>
+  </g>
+  ${child(62,296,'#ff8a3d','#3a4654')}
+</svg>`;
+
+// 3. 歩道なしの道＋後ろから自転車
+const SVG_BICYCLE = `
+<svg viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">
+  ${G}${SKY}${sun(60,60)}${cloud(180,75,0.9)}${cloud(320,55,0.7,0.8)}
+  <!-- 田んぼ風の脇 -->
+  <rect x="0" y="226" width="400" height="40" fill="#9bd17a"/>
+  <ellipse cx="70" cy="232" rx="60" ry="16" fill="#8cc468"/>
+  <ellipse cx="300" cy="234" rx="80" ry="18" fill="#8cc468"/>
+  <rect x="0" y="262" width="400" height="138" fill="url(#road)"/>
+  <rect x="0" y="262" width="400" height="6" fill="#9aa0a8"/>
+  <!-- 路側帯（道に沿う白線1本。線の外側＝歩行者が歩く端） -->
+  <rect x="0" y="348" width="400" height="52" fill="#7a8089"/>
+  <rect x="0" y="343" width="400" height="5" fill="#f4f7fa"/>
+  <!-- うしろ（左）から来る自転車：車道がわ・スピード線つき -->
+  <g transform="translate(74,284)">
+    <g stroke="#ffffff" stroke-width="3" stroke-linecap="round" opacity="0.55"><line x1="-26" y1="14" x2="-46" y2="14"/><line x1="-26" y1="30" x2="-50" y2="30"/><line x1="-26" y1="46" x2="-44" y2="46"/></g>
+    <ellipse cx="28" cy="62" rx="52" ry="8" fill="#000" opacity="0.12"/>
+    <circle cx="0" cy="40" r="22" fill="none" stroke="#2b2b2b" stroke-width="5"/>
+    <circle cx="56" cy="40" r="22" fill="none" stroke="#2b2b2b" stroke-width="5"/>
+    <g stroke="#cdd2d8" stroke-width="1.5"><line x1="0" y1="19" x2="0" y2="61"/><line x1="-21" y1="40" x2="21" y2="40"/><line x1="56" y1="19" x2="56" y2="61"/><line x1="35" y1="40" x2="77" y2="40"/></g>
+    <circle cx="0" cy="40" r="3" fill="#2b2b2b"/><circle cx="56" cy="40" r="3" fill="#2b2b2b"/>
+    <g stroke="#2aa5a5" stroke-width="5" fill="none" stroke-linecap="round"><line x1="0" y1="40" x2="30" y2="14"/><line x1="30" y1="14" x2="56" y2="40"/><line x1="0" y1="40" x2="40" y2="40"/><line x1="40" y1="40" x2="30" y2="14"/></g>
+    <line x1="30" y1="14" x2="24" y2="6" stroke="#333" stroke-width="4" stroke-linecap="round"/>
+    <line x1="50" y1="34" x2="60" y2="30" stroke="#333" stroke-width="4" stroke-linecap="round"/>
+    <rect x="34" y="-2" width="20" height="24" rx="8" fill="#2aa5a5"/>
+    <circle cx="44" cy="-12" r="11" fill="#ffe0b8"/>
+    <path d="M 33 -13 A 11 11 0 0 1 55 -13 Z" fill="#3a6ea5"/>
+  </g>
+  <!-- 歩行者：路側帯（端）を進行方向（右）へ歩く -->
+  ${child(252,302,'#34c759','#3a4654')}
+</svg>`;
+
+// 4. 雨の日＋傘＋横断歩道
+const SVG_RAIN = `
+<svg viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">
+  ${G}
+  <rect x="0" y="0" width="400" height="400" fill="url(#rainsky)"/>
+  ${cloud(110,58,1.2,0.95)}${cloud(290,78,1,0.9)}
+  <!-- 雨 -->
+  <g stroke="#dff0ff" stroke-width="3" stroke-linecap="round" opacity="0.8">
+    <line x1="40" y1="120" x2="32" y2="146"><animate attributeName="opacity" values="0.2;0.9;0.2" dur="0.8s" repeatCount="indefinite"/></line>
+    <line x1="120" y1="100" x2="112" y2="126"/>
+    <line x1="200" y1="120" x2="192" y2="146"><animate attributeName="opacity" values="0.9;0.2;0.9" dur="0.8s" repeatCount="indefinite"/></line>
+    <line x1="280" y1="105" x2="272" y2="131"/>
+    <line x1="350" y1="125" x2="342" y2="151"><animate attributeName="opacity" values="0.3;0.9;0.3" dur="0.7s" repeatCount="indefinite"/></line>
+    <line x1="70" y1="170" x2="62" y2="196"/>
+    <line x1="320" y1="175" x2="312" y2="201"><animate attributeName="opacity" values="0.9;0.3;0.9" dur="0.9s" repeatCount="indefinite"/></line>
+  </g>
+  <ellipse cx="60" cy="252" rx="95" ry="40" fill="#9bb59a"/>
+  <ellipse cx="345" cy="254" rx="105" ry="42" fill="#8fab8e"/>
+  ${roadCross('wetroad')}
+  ${crosswalk(215, '#e7edf2', 0.9)}
+  <ellipse cx="300" cy="384" rx="44" ry="7" fill="#cfe0ea" opacity="0.5"/>
+  <!-- 傘をさす子ども（手前の歩道で待つ） -->
+  <g transform="translate(72,296)">
+    <ellipse cx="0" cy="92" rx="32" ry="9" fill="#000" opacity="0.12"/>
+    <rect x="-12" y="56" width="11" height="26" rx="5" fill="#3a4654"/>
+    <rect x="2" y="56" width="11" height="26" rx="5" fill="#3a4654"/>
+    <ellipse cx="-7" cy="85" rx="9" ry="6" fill="#ffd633"/>
+    <ellipse cx="7" cy="85" rx="9" ry="6" fill="#ffd633"/>
+    <path d="M -19 24 q 0 -16 19 -16 q 19 0 19 16 l 0 34 q -19 8 -38 0 z" fill="#ffd400"/>
+    <path d="M -19 8 q 19 -20 38 0 q -19 -8 -38 0 z" fill="#f0c200"/>
+    <circle cx="0" cy="-2" r="15" fill="#ffe0b8"/>
+    <path d="M -15 -5 A 15 15 0 0 1 15 -5 Z" fill="#ffd633"/>
+    <path d="M 11 -6 q 14 0 19 6 q -11 4 -20 -2 z" fill="#e8bb1a"/>
+    <circle cx="-5" cy="3" r="2.2" fill="#3a2a1a"/>
+    <circle cx="6" cy="3" r="2.2" fill="#3a2a1a"/>
+    <path d="M -3 8 q 4 4 9 0" fill="none" stroke="#3a2a1a" stroke-width="2" stroke-linecap="round"/>
+    <g transform="rotate(18 18 14)"><rect x="14" y="-2" width="9" height="26" rx="4" fill="#ffd400"/></g>
+    <circle cx="28" cy="-4" r="5" fill="#ffe0b8"/>
+    <line x1="28" y1="-4" x2="16" y2="-46" stroke="#7a4a2a" stroke-width="4" stroke-linecap="round"/>
+    <path d="M -34 -46 A 50 38 0 0 1 66 -46 Z" fill="#ff5b5b"/>
+    <path d="M -34 -46 q 25 14 50 0 q 25 14 50 0" fill="none" stroke="#d94545" stroke-width="3"/>
+  </g>
+</svg>`;
+
+// 5. 犬が近づく（ゴール前・学校が見える）
+const SVG_DOG = `
+<svg viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">
+  ${G}${SKY}${sun(60,58)}${cloud(150,70,0.9)}${cloud(330,60,0.7,0.8)}
+  <ellipse cx="70" cy="250" rx="70" ry="20" fill="#bfe3a0"/>
+  <!-- 学校 -->
+  <g transform="translate(236,138)">
+    <rect x="58" y="-58" width="5" height="44" fill="#9aa0a8"/>
+    <path d="M 63 -56 l 26 9 l -26 9 z" fill="#e23b3b"/>
+    <rect x="-6" y="-16" width="142" height="22" rx="4" fill="#e07b39"/>
+    <rect x="0" y="4" width="130" height="110" rx="4" fill="#ffe3a3"/>
+    <g fill="#bfe6ff" stroke="#7fb6d8" stroke-width="1">
+      <rect x="14" y="20" width="20" height="18"/><rect x="44" y="20" width="20" height="18"/><rect x="74" y="20" width="20" height="18"/><rect x="100" y="20" width="20" height="18"/>
+      <rect x="14" y="48" width="20" height="18"/><rect x="100" y="48" width="20" height="18"/>
+    </g>
+    <rect x="50" y="66" width="30" height="48" rx="3" fill="#a35a1f"/>
+    <line x1="65" y1="66" x2="65" y2="114" stroke="#7a4216" stroke-width="2"/>
+  </g>
+  <rect x="0" y="256" width="400" height="144" fill="url(#road)"/>
+  <rect x="0" y="248" width="400" height="12" fill="#cfd3d8"/>
+  <rect x="0" y="248" width="400" height="4" fill="#eef1f4"/>
+  <!-- 犬 -->
+  <g transform="translate(275,332)">
+    <ellipse cx="0" cy="24" rx="38" ry="9" fill="#000" opacity="0.12"/>
+    <path d="M 30 -8 q 22 -8 16 10" fill="none" stroke="#c08a4e" stroke-width="8" stroke-linecap="round"/>
+    <ellipse cx="2" cy="0" rx="34" ry="20" fill="#c08a4e"/>
+    <rect x="-20" y="14" width="7" height="14" rx="3" fill="#a06f38"/>
+    <rect x="14" y="14" width="7" height="14" rx="3" fill="#a06f38"/>
+    <circle cx="-32" cy="-8" r="17" fill="#c08a4e"/>
+    <path d="M -44 -22 q -11 -2 -7 15 q 9 -4 11 -11 z" fill="#9a6a34"/>
+    <ellipse cx="-45" cy="-2" rx="9" ry="7" fill="#e7cda6"/>
+    <circle cx="-51" cy="-3" r="3" fill="#2b2b2b"/>
+    <circle cx="-34" cy="-12" r="2.6" fill="#2b2b2b"/>
+    <path d="M -24 2 q -8 7 -17 2" fill="none" stroke="#ff5b5b" stroke-width="3"/>
+  </g>
+  ${child(95,300,'#e23b3b','#2f4eb0')}
+</svg>`;
+
+// 6. 見通しの悪い角（生垣のかげから車）
+const SVG_CORNER = `
+<svg viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">
+  ${G}${SKY}${cloud(70,68,0.9)}${cloud(180,52,0.7,0.8)}
+  <rect x="0" y="296" width="400" height="104" fill="#cdd2d8"/>
+  <rect x="0" y="292" width="400" height="6" fill="#b3b9c0"/>
+  <!-- かげから出てくる車（先に描いて塀で隠す＝前面だけ覗く） -->
+  <g transform="translate(300,286)">
+    <ellipse cx="-46" cy="42" rx="30" ry="7" fill="#000" opacity="0.12"/>
+    <path d="M -34 -8 q 7 -22 22 -22 l 20 0 q 15 0 24 22 z" fill="#3f7fd0"/>
+    <path d="M -27 -8 q 5 -16 16 -16 l 5 0 l 0 16 z" fill="#dff1ff"/>
+    <rect x="-60" y="-8" width="120" height="36" rx="15" fill="#4a90e2"/>
+    <rect x="-60" y="14" width="120" height="14" rx="7" fill="#3a72b8"/>
+    <circle cx="-56" cy="6" r="6" fill="#fff3a0"/>
+    <circle cx="-56" cy="6" r="12" fill="#fff3a0" opacity="0.3"/>
+    <circle cx="-34" cy="30" r="13" fill="#2b2b2b"/><circle cx="-34" cy="30" r="6" fill="#9a9a9a"/>
+    <circle cx="34" cy="30" r="13" fill="#2b2b2b"/><circle cx="34" cy="30" r="6" fill="#9a9a9a"/>
+  </g>
+  <!-- コンクリート塀（灰色・車を隠す） -->
+  <g>
+    <rect x="288" y="150" width="112" height="250" fill="#b8bcc2"/>
+    <rect x="288" y="150" width="6" height="250" fill="#ccd0d5"/>
+    <rect x="282" y="142" width="124" height="14" rx="3" fill="#a7abb2"/>
+    <g stroke="#a7abb2" stroke-width="2">
+      <line x1="288" y1="196" x2="400" y2="196"/>
+      <line x1="288" y1="242" x2="400" y2="242"/>
+      <line x1="288" y1="288" x2="400" y2="288"/>
+      <line x1="288" y1="334" x2="400" y2="334"/>
+    </g>
+  </g>
+  <!-- とまれ標識 -->
+  <g transform="translate(208,232)">
+    <rect x="-3" y="0" width="6" height="64" fill="#9aa0a8"/>
+    <path d="M -24 -4 L 24 -4 L 0 34 Z" fill="#e23b3b" stroke="#ffffff" stroke-width="3"/>
+    <text x="0" y="14" text-anchor="middle" font-size="11" fill="#fff" font-weight="bold">止</text>
+  </g>
+  ${child(122,296,'#f0c000','#3a4654')}
+</svg>`;
+
+// 7. 駐車場・路地からの飛び出し
+const SVG_PARKING = `
+<svg viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">
+  ${G}${SKY}${cloud(80,72,0.9)}${cloud(250,55,0.8,0.85)}
+  <rect x="0" y="300" width="400" height="100" fill="#d3d7dc"/>
+  <rect x="0" y="296" width="400" height="6" fill="#bcc1c7"/>
+  <!-- 立体駐車場 -->
+  <g transform="translate(252,108)">
+    <rect x="0" y="0" width="148" height="200" fill="#cdd5dc"/>
+    <rect x="0" y="0" width="148" height="22" fill="#9fb0bc"/>
+    <rect x="0" y="70" width="148" height="6" fill="#b6c0c9"/>
+    <rect x="0" y="130" width="148" height="6" fill="#b6c0c9"/>
+    <rect x="92" y="34" width="44" height="44" rx="8" fill="#2f6fd0"/>
+    <path d="M 104 46 h 14 a 8 8 0 0 1 0 16 h -6 v 8 h -8 z" fill="#fff"/>
+    <rect x="16" y="150" width="92" height="50" fill="#3a4048"/>
+  </g>
+  <!-- でてくる車（左向き） -->
+  <g transform="translate(270,300)">
+    <ellipse cx="-22" cy="16" rx="44" ry="8" fill="#000" opacity="0.12"/>
+    <rect x="-50" y="-20" width="66" height="32" rx="11" fill="#e24b3c"/>
+    <path d="M -34 -20 q 5 -16 16 -16 l 12 0 l 0 16 z" fill="#e24b3c"/>
+    <rect x="-30" y="-17" width="16" height="14" rx="3" fill="#dff1ff"/>
+    <circle cx="-48" cy="-4" r="5" fill="#fff3a0"/>
+    <circle cx="-48" cy="-4" r="10" fill="#fff3a0" opacity="0.3"/>
+    <circle cx="-34" cy="16" r="11" fill="#2b2b2b"/><circle cx="-34" cy="16" r="5" fill="#9a9a9a"/>
+    <circle cx="4" cy="16" r="11" fill="#2b2b2b"/><circle cx="4" cy="16" r="5" fill="#9a9a9a"/>
+  </g>
+  <!-- ！マーク -->
+  <g transform="translate(180,252)">
+    <circle cx="0" cy="0" r="16" fill="#ffcf33" stroke="#e0a800" stroke-width="3"/>
+    <rect x="-3" y="-9" width="6" height="11" rx="2" fill="#7a5800"/>
+    <circle cx="0" cy="7" r="3.2" fill="#7a5800"/>
+  </g>
+  ${child(110,300,'#46b06a','#2f4eb0')}
+</svg>`;
+
+// 8. 知らない人の声かけ
+const SVG_STRANGER = `
+<svg viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">
+  ${G}${SKY}${cloud(90,70,0.9)}${cloud(280,58,0.8,0.85)}
+  <ellipse cx="60" cy="294" rx="90" ry="26" fill="#bfe3a0"/>
+  <ellipse cx="330" cy="296" rx="90" ry="24" fill="#aedc8c"/>
+  <rect x="0" y="300" width="400" height="100" fill="#d3d7dc"/>
+  <rect x="0" y="296" width="400" height="6" fill="#bcc1c7"/>
+  <!-- とまっている車（側面） -->
+  <g transform="translate(300,300)">
+    <ellipse cx="0" cy="42" rx="66" ry="10" fill="#000" opacity="0.12"/>
+    <path d="M -34 -8 q 7 -22 22 -22 l 20 0 q 15 0 24 22 z" fill="#6b7079"/>
+    <path d="M -27 -8 q 5 -16 16 -16 l 5 0 l 0 16 z" fill="#dff1ff"/>
+    <path d="M 2 -24 l 7 0 q 11 0 18 16 l -25 0 z" fill="#dff1ff"/>
+    <rect x="-60" y="-8" width="120" height="36" rx="15" fill="#7c828a"/>
+    <rect x="-60" y="14" width="120" height="14" rx="7" fill="#5f656d"/>
+    <circle cx="-34" cy="30" r="13" fill="#2b2b2b"/><circle cx="-34" cy="30" r="6" fill="#9a9a9a"/>
+    <circle cx="34" cy="30" r="13" fill="#2b2b2b"/><circle cx="34" cy="30" r="6" fill="#9a9a9a"/>
+  </g>
+  <!-- 窓から身をのりだす大人 -->
+  <g transform="translate(258,272)">
+    <rect x="-16" y="10" width="34" height="24" rx="7" fill="#4a5560"/>
+    <rect x="-44" y="14" width="30" height="9" rx="4" fill="#4a5560"/>
+    <circle cx="-46" cy="18" r="6" fill="#ffe0b8"/>
+    <circle cx="2" cy="-4" r="14" fill="#ffe0b8"/>
+    <path d="M -12 -6 A 14 14 0 0 1 16 -6 Z" fill="#3a3f47"/>
+    <rect x="-10" y="-6" width="24" height="7" rx="3" fill="#222"/>
+  </g>
+  ${child(96,300,'#e23b3b','#2f4eb0')}
+</svg>`;
+
+// 9. 踏切
+const SVG_CROSSING = `
+<svg viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">
+  ${G}${SKY}${cloud(110,64,1)}${cloud(310,80,0.8,0.85)}
+  <ellipse cx="320" cy="220" rx="120" ry="50" fill="#bfe3a0"/>
+  <!-- 近づく電車 -->
+  <g transform="translate(330,232)">
+    <rect x="-60" y="0" width="90" height="44" rx="8" fill="#2f6fd0"/>
+    <rect x="-60" y="-2" width="90" height="9" rx="4" fill="#27508f"/>
+    <rect x="-54" y="10" width="26" height="18" rx="3" fill="#cdeeff"/>
+    <rect x="-22" y="10" width="26" height="18" rx="3" fill="#cdeeff"/>
+    <rect x="-58" y="34" width="88" height="6" fill="#1f3f73"/>
+    <circle cx="-54" cy="22" r="4" fill="#fff3a0"/>
+  </g>
+  <!-- 線路 -->
+  <rect x="0" y="262" width="400" height="42" fill="#a99b86"/>
+  <g fill="#8a7c69"><rect x="20" y="262" width="10" height="42"/><rect x="70" y="262" width="10" height="42"/><rect x="120" y="262" width="10" height="42"/><rect x="170" y="262" width="10" height="42"/><rect x="220" y="262" width="10" height="42"/><rect x="270" y="262" width="10" height="42"/><rect x="320" y="262" width="10" height="42"/><rect x="370" y="262" width="10" height="42"/></g>
+  <rect x="0" y="272" width="400" height="4" fill="#c7bfb0"/>
+  <rect x="0" y="292" width="400" height="4" fill="#c7bfb0"/>
+  <rect x="0" y="304" width="400" height="96" fill="#cdd2d8"/>
+  <!-- 警報機 -->
+  <g transform="translate(54,150)">
+    <rect x="-5" y="0" width="11" height="156" fill="#3a3f47"/>
+    <g stroke="#ffd400" stroke-width="6" stroke-linecap="round"><line x1="-16" y1="6" x2="20" y2="40"/><line x1="20" y1="6" x2="-16" y2="40"/></g>
+    <circle cx="-12" cy="62" r="8" fill="#ff3b30"><animate attributeName="opacity" values="1;0.15;1" dur="0.6s" repeatCount="indefinite"/></circle>
+    <circle cx="16" cy="62" r="8" fill="#ff3b30"><animate attributeName="opacity" values="0.15;1;0.15" dur="0.6s" repeatCount="indefinite"/></circle>
+  </g>
+  <!-- 遮断バー（下りている） -->
+  <g transform="translate(60,238)">
+    <rect x="0" y="0" width="300" height="13" rx="5" fill="#ffd400"/>
+    <g fill="#2b2b2b"><rect x="24" y="0" width="26" height="13"/><rect x="76" y="0" width="26" height="13"/><rect x="128" y="0" width="26" height="13"/><rect x="180" y="0" width="26" height="13"/><rect x="232" y="0" width="26" height="13"/></g>
+  </g>
+  ${child(170,304,'#3a8fd0','#2f4eb0')}
+</svg>`;
+
+// 出発イラスト（家＋子ども＋いってきます）
+const SVG_HOME = `
+<svg viewBox="0 0 300 200" xmlns="http://www.w3.org/2000/svg">
+  ${G}
+  <rect x="0" y="0" width="300" height="200" fill="url(#sky)"/>
+  ${sun(255,38)}${cloud(72,42,0.7,0.9)}
+  <rect x="0" y="172" width="300" height="28" fill="#9bd17a"/>
+  <g transform="translate(195,52)">
+    <rect x="-52" y="34" width="104" height="86" fill="#ffe0b8"/>
+    <path d="M -64 36 L 0 -6 L 64 36 Z" fill="#e7894a"/>
+    <rect x="-40" y="54" width="26" height="24" fill="#cdeeff" stroke="#9cc3dd" stroke-width="2"/>
+    <rect x="12" y="66" width="30" height="54" rx="2" fill="#a35a1f"/>
+    <circle cx="37" cy="94" r="3" fill="#ffd633"/>
+  </g>
+  <g transform="translate(78,172)">
+    <ellipse cx="0" cy="0" rx="23" ry="6" fill="#000" opacity="0.12"/>
+    <rect x="-12" y="-32" width="10" height="28" rx="5" fill="#2f4eb0"/>
+    <rect x="2" y="-32" width="10" height="28" rx="5" fill="#2f4eb0"/>
+    <ellipse cx="-7" cy="-4" rx="8" ry="5" fill="#fff"/>
+    <ellipse cx="7" cy="-4" rx="8" ry="5" fill="#fff"/>
+    <rect x="-20" y="-62" width="13" height="32" rx="6" fill="#d5372f"/>
+    <path d="M -16 -54 q 0 -13 16 -13 q 16 0 16 13 l 0 28 q -16 7 -32 0 z" fill="#fbfbfb"/>
+    <rect x="18" y="-84" width="9" height="26" rx="4" fill="#fbfbfb" transform="rotate(32 22 -72)"/>
+    <circle cx="34" cy="-84" r="5" fill="#ffe0b8"/>
+    <circle cx="0" cy="-68" r="16" fill="#ffe0b8"/>
+    <path d="M -16 -70 A 16 16 0 0 1 16 -70 Z" fill="#ffd633"/>
+    <path d="M 12 -71 q 14 0 19 6 q -11 4 -20 -2 z" fill="#e8bb1a"/>
+    <circle cx="-6" cy="-66" r="2.2" fill="#3a2a1a"/>
+    <circle cx="6" cy="-66" r="2.2" fill="#3a2a1a"/>
+    <path d="M -4 -60 q 4 4 9 0" fill="none" stroke="#3a2a1a" stroke-width="2" stroke-linecap="round"/>
+  </g>
+  <g transform="translate(86,42)">
+    <rect x="-64" y="-20" width="128" height="40" rx="13" fill="#ffffff" stroke="#0a84ff" stroke-width="3"/>
+    <path d="M -10 18 l -8 22 l 26 -16 z" fill="#ffffff" stroke="#0a84ff" stroke-width="3"/>
+    <text x="0" y="6" text-anchor="middle" font-size="18" font-weight="800" fill="#0a6fd0">いってきます！</text>
+  </g>
+</svg>`;
+
+// ゴールイラスト（学校＋子ども＋とうちゃく）
+const SVG_SCHOOL = `
+<svg viewBox="0 0 300 200" xmlns="http://www.w3.org/2000/svg">
+  ${G}
+  <rect x="0" y="0" width="300" height="200" fill="url(#sky)"/>
+  ${sun(44,38)}${cloud(222,42,0.7,0.9)}
+  <rect x="0" y="172" width="300" height="28" fill="#9bd17a"/>
+  <g transform="translate(168,52)">
+    <rect x="40" y="-42" width="4" height="32" fill="#9aa0a8"/>
+    <path d="M 44 -40 l 20 7 l -20 7 z" fill="#e23b3b"/>
+    <rect x="-66" y="-12" width="132" height="16" rx="3" fill="#e07b39"/>
+    <rect x="-60" y="2" width="120" height="100" rx="3" fill="#ffe3a3"/>
+    <g fill="#bfe6ff" stroke="#7fb6d8" stroke-width="1">
+      <rect x="-48" y="14" width="18" height="16"/><rect x="-24" y="14" width="18" height="16"/><rect x="22" y="14" width="18" height="16"/><rect x="42" y="14" width="18" height="16"/>
+    </g>
+    <rect x="-12" y="58" width="26" height="44" rx="3" fill="#a35a1f"/>
+    <line x1="1" y1="58" x2="1" y2="102" stroke="#7a4216" stroke-width="2"/>
+  </g>
+  <g transform="translate(70,172)">
+    <ellipse cx="0" cy="0" rx="23" ry="6" fill="#000" opacity="0.12"/>
+    <rect x="-12" y="-32" width="10" height="28" rx="5" fill="#2f4eb0"/>
+    <rect x="2" y="-32" width="10" height="28" rx="5" fill="#2f4eb0"/>
+    <ellipse cx="-7" cy="-4" rx="8" ry="5" fill="#fff"/>
+    <ellipse cx="7" cy="-4" rx="8" ry="5" fill="#fff"/>
+    <rect x="-19" y="-60" width="12" height="30" rx="6" fill="#d5372f"/>
+    <path d="M -16 -52 q 0 -13 16 -13 q 16 0 16 13 l 0 28 q -16 7 -32 0 z" fill="#fbfbfb"/>
+    <rect x="-28" y="-82" width="8" height="24" rx="4" fill="#fbfbfb" transform="rotate(-24 -24 -70)"/>
+    <circle cx="-32" cy="-82" r="5" fill="#ffe0b8"/>
+    <rect x="20" y="-82" width="8" height="24" rx="4" fill="#fbfbfb" transform="rotate(24 24 -70)"/>
+    <circle cx="32" cy="-82" r="5" fill="#ffe0b8"/>
+    <circle cx="0" cy="-66" r="16" fill="#ffe0b8"/>
+    <path d="M -16 -68 A 16 16 0 0 1 16 -68 Z" fill="#ffd633"/>
+    <circle cx="-6" cy="-64" r="2.2" fill="#3a2a1a"/>
+    <circle cx="6" cy="-64" r="2.2" fill="#3a2a1a"/>
+    <path d="M -4 -58 q 4 4 9 0" fill="none" stroke="#3a2a1a" stroke-width="2" stroke-linecap="round"/>
+  </g>
+  <g transform="translate(88,40)">
+    <rect x="-58" y="-20" width="116" height="40" rx="13" fill="#ffffff" stroke="#34c759" stroke-width="3"/>
+    <path d="M -8 18 l -8 22 l 26 -16 z" fill="#ffffff" stroke="#34c759" stroke-width="3"/>
+    <text x="0" y="6" text-anchor="middle" font-size="19" font-weight="800" fill="#1f9e48">とうちゃく！</text>
+  </g>
+</svg>`;
+
+/* =========================================================
+   シーンデータ
+   ふりがなは <ruby>漢字<rt>かな</rt></ruby> で付与
+   ========================================================= */
+const SCENES = [
+  {
+    svg: SVG_SIGNAL,
+    title: "🚦 しんごうき",
+    q: '<ruby>青信号<rt>あおしんごう</rt></ruby>が チカチカ <ruby>点滅<rt>てんめつ</rt></ruby>しはじめた。どうする？',
+    choices: [
+      { t:'いそいで <ruby>走<rt>はし</rt></ruby>って わたる', ok:false },
+      { t:'つぎの <ruby>青<rt>あお</rt></ruby>になるまで まつ', ok:true },
+      { t:'<ruby>手<rt>て</rt></ruby>をあげて ゆっくり わたる', ok:false },
+    ],
+    okMsg: 'そのとおり！チカチカは「もうすぐ <ruby>赤<rt>あか</rt></ruby>」のあいず。あわてず つぎの <ruby>青<rt>あお</rt></ruby>を まとう。',
+    ngMsg: 'チカチカは「もうすぐ <ruby>赤<rt>あか</rt></ruby>」のあいず。とちゅうで <ruby>赤<rt>あか</rt></ruby>になると あぶないよ。つぎの <ruby>青<rt>あお</rt></ruby>を まとう。',
+  },
+  {
+    svg: SVG_CAR,
+    title: "🚗 おうだんほどう（くるま）",
+    q: '<ruby>信号<rt>しんごう</rt></ruby>のない おうだんほどう。<ruby>車<rt>くるま</rt></ruby>が ちかづいてきた。どうする？',
+    choices: [
+      { t:'<ruby>車<rt>くるま</rt></ruby>は とまると おもって わたる', ok:false },
+      { t:'たちどまって <ruby>手<rt>て</rt></ruby>をあげ、<ruby>車<rt>くるま</rt></ruby>が とまったのを たしかめて わたる', ok:true },
+      { t:'<ruby>車<rt>くるま</rt></ruby>に <ruby>手<rt>て</rt></ruby>をふって さきに いかせる', ok:false, ng:'じぶんで <ruby>車<rt>くるま</rt></ruby>に あいずを おくると、うんてんしゅが まよって あぶないことも。<ruby>手<rt>て</rt></ruby>を あげて「わたります」と しめし、<ruby>車<rt>くるま</rt></ruby>が とまるのを まってから わたろう。' },
+    ],
+    okMsg: 'すばらしい！<ruby>手<rt>て</rt></ruby>を あげて「わたります」と うんてんしゅに しらせ、<ruby>目<rt>め</rt></ruby>を あわせて、<ruby>車<rt>くるま</rt></ruby>が とまってから わたろう。',
+    ngMsg: '「とまってくれるはず」は あぶないよ。まず たちどまって、<ruby>車<rt>くるま</rt></ruby>が ちゃんと とまったのを たしかめてから わたろう。',
+  },
+  {
+    svg: SVG_CORNER,
+    title: "🚸 みとおしの わるい かど",
+    q: 'へいで さきが <ruby>見<rt>み</rt></ruby>えない かど。どうする？',
+    choices: [
+      { t:'そのまま はやあしで かどを まがる', ok:false },
+      { t:'かどの まえで いちど とまり、<ruby>左右<rt>さゆう</rt></ruby>を みる', ok:true },
+      { t:'かべに そって <ruby>走<rt>はし</rt></ruby>って まがる', ok:false },
+    ],
+    okMsg: 'せいかい！<ruby>見<rt>み</rt></ruby>えない かどは <ruby>車<rt>くるま</rt></ruby>や じてんしゃが きゅうに くることが。いちど とまって <ruby>左右<rt>さゆう</rt></ruby>を たしかめよう。',
+    ngMsg: '<ruby>見<rt>み</rt></ruby>えない かどを そのまま まがると、<ruby>車<rt>くるま</rt></ruby>や じてんしゃと ぶつかって あぶないよ。いちど とまって <ruby>左右<rt>さゆう</rt></ruby>を みよう。',
+  },
+  {
+    svg: SVG_PARKING,
+    title: "🚙 ちゅうしゃじょうの でいりぐち",
+    q: 'ちゅうしゃじょうから <ruby>車<rt>くるま</rt></ruby>が でてきそう。どうする？',
+    choices: [
+      { t:'いそいで <ruby>車<rt>くるま</rt></ruby>の <ruby>前<rt>まえ</rt></ruby>を とおる', ok:false },
+      { t:'たちどまって、うんてんしゅを <ruby>確<rt>たし</rt></ruby>かめる', ok:true },
+      { t:'<ruby>走<rt>はし</rt></ruby>って <ruby>車<rt>くるま</rt></ruby>の うしろを とおる', ok:false },
+    ],
+    okMsg: 'せいかい！でてくる <ruby>車<rt>くるま</rt></ruby>は きゅうに うごく。たちどまって、うんてんしゅが きづいているか たしかめてから とおろう。',
+    ngMsg: 'でてくる <ruby>車<rt>くるま</rt></ruby>の <ruby>前<rt>まえ</rt></ruby>やうしろは うんてんしゅから <ruby>見<rt>み</rt></ruby>えにくくて あぶないよ。たちどまって、<ruby>車<rt>くるま</rt></ruby>が とまるのを まとう。',
+  },
+  {
+    svg: SVG_BICYCLE,
+    title: "🚲 くるま・じてんしゃの みち",
+    q: 'ほどうの ない みち。うしろから じてんしゃ。どこを あるく？',
+    choices: [
+      { t:'みちの まんなかを あるく', ok:false },
+      { t:'<ruby>右側<rt>みぎがわ</rt></ruby>を 1<ruby>列<rt>れつ</rt></ruby>で あるく', ok:true },
+      { t:'ともだちと ひろがって あるく', ok:false },
+    ],
+    okMsg: 'せいかい！ほどうの ない みちは <ruby>右側<rt>みぎがわ</rt></ruby>（<ruby>車<rt>くるま</rt></ruby>が <ruby>見<rt>み</rt></ruby>えるがわ）を 1れつで あるこう。',
+    ngMsg: 'まんなかや ひろがって あるくと あぶないよ。ほどうの ない みちは <ruby>右側<rt>みぎがわ</rt></ruby>を 1れつで あるこう。',
+  },
+  {
+    svg: SVG_STRANGER,
+    title: "🚶 しらない ひとの こえかけ",
+    q: 'しらない <ruby>人<rt>ひと</rt></ruby>に「<ruby>車<rt>くるま</rt></ruby>に のらない？」と いわれた。どうする？',
+    choices: [
+      { t:'「うん」と いって <ruby>車<rt>くるま</rt></ruby>に のる', ok:false },
+      { t:'ついていって はなしを きく', ok:false },
+      { t:'ことわって、はなれて おとなに しらせる', ok:true },
+    ],
+    okMsg: 'せいかい！しらない <ruby>人<rt>ひと</rt></ruby>には ついていかない。「いきません！」と おおきな こえで ことわり、すぐ はなれて おとなに しらせよう。',
+    ngMsg: 'しらない <ruby>人<rt>ひと</rt></ruby>の <ruby>車<rt>くるま</rt></ruby>に のったり ついていくのは とても あぶないよ。ことわって すぐ はなれ、おとなに しらせよう。',
+  },
+  {
+    svg: SVG_RAIN,
+    title: "☔ あめの ひ",
+    q: 'かさを さして おうだんほどう。どうする？',
+    choices: [
+      { t:'かさを あげて <ruby>前<rt>まえ</rt></ruby>と <ruby>左右<rt>さゆう</rt></ruby>を <ruby>見<rt>み</rt></ruby>て わたる', ok:true },
+      { t:'かさを さげて <ruby>下<rt>した</rt></ruby>をむいて いそぐ', ok:false },
+      { t:'かさを まわしながら わたる', ok:false },
+    ],
+    okMsg: 'いいね！かさで まわりが <ruby>見<rt>み</rt></ruby>えにくくなる。かさを あげて、<ruby>左右<rt>さゆう</rt></ruby>を しっかり たしかめよう。',
+    ngMsg: 'かさで まわりが <ruby>見<rt>み</rt></ruby>えにくくなって あぶないよ。かさを あげて、<ruby>前<rt>まえ</rt></ruby>と <ruby>左右<rt>さゆう</rt></ruby>を よく <ruby>見<rt>み</rt></ruby>てね。',
+  },
+  {
+    svg: SVG_CROSSING,
+    title: "🚃 ふみきり",
+    q: 'ふみきりの けいほうが カンカン なりはじめた。どうする？',
+    choices: [
+      { t:'バーが しまる まえに いそいで わたる', ok:false },
+      { t:'なりやむまで バーの まえで まつ', ok:true },
+      { t:'バーを くぐって わたる', ok:false },
+    ],
+    okMsg: 'せいかい！カンカンは「<ruby>電車<rt>でんしゃ</rt></ruby>が くる」あいず。むりに わたらず、なりやんで バーが あがるまで まとう。',
+    ngMsg: 'けいほうが なっているとき むりに わたるのは いのちに かかわって とても あぶない。なりやむまで バーの まえで まとう。',
+  },
+  {
+    svg: SVG_DOG,
+    title: "🐕 いぬが きた（がっこうの まえ）",
+    q: 'しらない いぬが ちかづいてきた。どうする？',
+    choices: [
+      { t:'かわいいので さわりに いく', ok:false },
+      { t:'いそいで <ruby>走<rt>はし</rt></ruby>って にげる', ok:false },
+      { t:'たちどまって ゆっくり はなれる', ok:true },
+    ],
+    okMsg: 'せいかい！しらない いぬには ちかづかない。<ruby>走<rt>はし</rt></ruby>ると おいかけてくることも。おちついて はなれよう。',
+    ngMsg: 'しらない いぬに ちかづいたり <ruby>走<rt>はし</rt></ruby>って にげるのは あぶないよ。たちどまって、ゆっくり はなれよう。',
+  },
+];
+
+/* =========================================================
+   ゲームロジック
+   ========================================================= */
+const stage   = document.getElementById('stage');
+const elTitle = document.getElementById('scene-title');
+const elQ     = document.getElementById('question');
+const elChoices = document.getElementById('choices');
+const elFb    = document.getElementById('feedback');
+const elFbHead= document.getElementById('fb-head');
+const elFbText= document.getElementById('fb-text');
+const nextBtn = document.getElementById('next-btn');
+const fill    = document.getElementById('fill');
+const track   = document.getElementById('track');
+let dots      = [];
+let order     = [];
+const stepnum = document.getElementById('stepnum');
+
+// シーン数に合わせて進捗ドットを生成
+function buildDots(){
+  dots.forEach(d=>d.remove());
+  dots = SCENES.map(()=>{
+    const d = document.createElement('div');
+    d.className = 'dot';
+    track.appendChild(d);
+    return d;
+  });
+}
+
+// 出題順をつくる：全シーンをシャッフル（出発・ゴールは別画面なので固定不要）
+function buildOrder(){
+  const n = SCENES.length;
+  order = [];
+  for(let i=0;i<n;i++) order.push(i);
+  for(let i=order.length-1;i>0;i--){
+    const j = Math.floor(Math.random()*(i+1));
+    const t = order[i]; order[i] = order[j]; order[j] = t;
+  }
+}
+
+let cur = 0;
+let score = 0;
+let answered = false;
+
+function updateProgress(){
+  const total = SCENES.length;
+  // バーの埋まり具合（0/4..4/4 を 0%〜100%に）
+  const ratio = total > 1 ? cur/(total-1) : 0;
+  fill.style.width = (ratio*100) + '%';
+  dots.forEach((d,i)=>{
+    d.classList.remove('done','now');
+    if(i < cur) d.classList.add('done');
+    if(i === cur) d.classList.add('now');
+  });
+  stepnum.textContent = `ステップ ${cur+1} / ${total}`;
+}
+
+function renderScene(){
+  const s = SCENES[order[cur]];
+  answered = false;
+  stage.innerHTML = s.svg;
+  elTitle.innerHTML = s.title;
+  elQ.innerHTML = s.q;
+  elFb.className = '';
+  elFb.classList.remove('show');
+  nextBtn.style.display = 'none';
+
+  elChoices.innerHTML = '';
+  s.choices.forEach((c, idx)=>{
+    const btn = document.createElement('button');
+    btn.className = 'choice';
+    btn.innerHTML = `<span class="mark">${'ABC'[idx]}</span><span>${c.t}</span>`;
+    btn.addEventListener('click', ()=> choose(idx, btn));
+    elChoices.appendChild(btn);
+  });
+  updateProgress();
+}
+
+function choose(idx, btn){
+  if(answered) return;
+  answered = true;
+  const s = SCENES[order[cur]];
+  const correct = s.choices[idx].ok;
+  if(correct) score++;
+
+  // 全ボタンを無効化＆色付け
+  const btns = [...elChoices.querySelectorAll('.choice')];
+  btns.forEach((b,i)=>{
+    b.disabled = true;
+    if(s.choices[i].ok) b.classList.add('correct');
+    else if(i===idx) b.classList.add('wrong');
+    else b.classList.add('dim');
+  });
+
+  // フィードバック
+  elFb.classList.add('show');
+  if(correct){
+    elFb.classList.add('ok');
+    elFbHead.innerHTML = '<svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5" fill="none" stroke="#0a84ff" stroke-width="4"/></svg>せいかい！';
+    elFbText.innerHTML = s.okMsg;
+  }else{
+    elFb.classList.add('ng');
+    elFbHead.innerHTML = '❌ あぶない！';
+    elFbText.innerHTML = s.choices[idx].ng || s.ngMsg;
+  }
+
+  // 次へ / ゴール
+  nextBtn.style.display = 'block';
+  if(cur === SCENES.length-1){
+    nextBtn.textContent = 'がっこうに ゴール！ 🏫';
+    nextBtn.classList.add('go');
+  }else{
+    nextBtn.textContent = 'つぎへ ▶';
+    nextBtn.classList.remove('go');
+  }
+}
+
+nextBtn.addEventListener('click', ()=>{
+  if(cur < SCENES.length-1){
+    cur++;
+    renderScene();
+    window.scrollTo(0,0);
+  }else{
+    showGoal();
+  }
+});
+
+function showGoal(){
+  const total = SCENES.length;
+  document.getElementById('goal-screen').classList.remove('hidden');
+  const stars = '⭐'.repeat(score) + '☆'.repeat(total-score);
+  document.getElementById('goal-stars').textContent = stars;
+  document.getElementById('goal-score').textContent = `${total}もん中 ${score}もん せいかい！`;
+  let title, msg, emoji;
+  if(score === total){ title='かんぺき！'; emoji='🎉'; msg='あんぜんはかせ にんてい！この ちょうしで まいにち あんぜんに とうこうしよう。'; }
+  else if(score >= Math.ceil(total*0.6)){ title='よくできました！'; emoji='😊'; msg='もうすこし！まちがえた ところを おぼえて、また チャレンジしてね。'; }
+  else{ title='もういちど れんしゅう！'; emoji='💪'; msg='だいじょうぶ。くりかえして あんぜんな わたりかたを みにつけよう。'; }
+  document.getElementById('goal-title').textContent = emoji + ' ' + title;
+  document.getElementById('goal-msg').innerHTML = msg;
+}
+
+document.getElementById('start-btn').addEventListener('click', ()=>{
+  document.getElementById('start-screen').classList.add('hidden');
+  cur = 0; score = 0;
+  buildOrder();
+  renderScene();
+});
+
+document.getElementById('retry-btn').addEventListener('click', ()=>{
+  document.getElementById('goal-screen').classList.add('hidden');
+  cur = 0; score = 0;
+  buildOrder();
+  renderScene();
+});
+
+// 初期描画（スタート画面の裏で1枚目を用意）
+document.getElementById('start-illust').innerHTML = SVG_HOME;
+document.getElementById('goal-illust').innerHTML = SVG_SCHOOL;
+buildDots();
+buildOrder();
+renderScene();
+</script>
+</body>
+</html>

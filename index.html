@@ -15,21 +15,24 @@
     --paper:#fffdf7;
   }
   *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
-  html,body{margin:0; padding:0; height:100%;}
+  html,body{margin:0; padding:0;}
   body{
     font-family:"Hiragino Maru Gothic ProN","Hiragino Kaku Gothic ProN","Yu Gothic UI","Meiryo",system-ui,sans-serif;
     background:#e8f4ff;
     color:var(--ink);
-    display:flex; justify-content:center;
+    /* 高さは固定せず中身に合わせて伸びる＝ボタンが画面外でも必ずスクロールで届く */
+    min-height:100vh; min-height:100dvh;
+    display:flex; justify-content:center; align-items:flex-start;
     line-height:1.5;
   }
   /* スマホ縦画面前提。幅を絞って中央寄せ（PCでも崩れない） */
   #app{
-    width:100%; max-width:480px; min-height:100%;
+    width:100%; max-width:480px;
+    min-height:100vh; min-height:100dvh;
     background:var(--paper);
     display:flex; flex-direction:column;
     box-shadow:0 0 20px rgba(0,0,0,.08);
-    position:relative; overflow:hidden;
+    position:relative;
   }
 
   /* 進捗バー */
@@ -70,7 +73,7 @@
 
   /* 下半分 */
   #panel{
-    flex:1; padding:14px 16px 20px;
+    flex:1; padding:14px 16px calc(20px + env(safe-area-inset-bottom, 0px));
     display:flex; flex-direction:column; gap:10px;
   }
   #scene-title{font-size:14px; color:#0a84ff; font-weight:700; margin:0;}
@@ -117,9 +120,11 @@
 
   /* スタート / ゴール画面 */
   .overlay{
-    position:absolute; inset:0; background:var(--paper);
+    position:fixed; top:0; bottom:0; left:50%; transform:translateX(-50%);
+    width:100%; max-width:480px; background:var(--paper);
     display:flex; flex-direction:column; align-items:center; justify-content:center;
-    text-align:center; padding:30px 24px; gap:14px; z-index:10;
+    text-align:center; padding:30px 24px calc(30px + env(safe-area-inset-bottom, 0px));
+    gap:14px; z-index:10; overflow-y:auto;
   }
   .overlay.hidden{display:none;}
   .overlay h1{font-size:30px; margin:0; line-height:1.3;}
